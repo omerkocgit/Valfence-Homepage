@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    margin: 0;
+    padding: 0;
+    scroll-behavior: smooth;
+    scroll-padding-top: 4.75rem;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+  }
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Accessible focus rings */
+*:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* GPU-Accelerated Laser Scanner Animation */
+@keyframes scanSweep {
+  0%, 100% {
+    clip-path: polygon(15% 0, 100% 0, 100% 100%, 15% 100%);
+  }
+  50% {
+    clip-path: polygon(85% 0, 100% 0, 100% 100%, 85% 100%);
+  }
+}
+
+@keyframes laserSweep {
+  0%, 100% {
+    left: 15%;
+  }
+  50% {
+    left: 85%;
+  }
+}
+
+.animate-scan-sweep {
+  animation: scanSweep 5s ease-in-out infinite;
+  will-change: clip-path;
+}
+
+
