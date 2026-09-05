@@ -35,6 +35,21 @@
 }
 
 /* Native anchor and dialog layout stability. */
+html { scroll-padding-top: calc(var(--header-height, 72px) + 8px); }
+#main-content { padding-top: var(--header-height, 72px); }
+@keyframes dash {
+  to { stroke-dashoffset: -200; }
+}
+/* Keep the original section rail visible without covering page controls. */
+@media (min-width: 768px) and (max-width: 1399px) {
+  #main-content { padding-right: 40px; }
+}
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .header-brand { gap: .375rem; }
+  .header-brand svg { height: 32px; width: 37px; }
+  .header-brand span { font-size: .75rem; letter-spacing: .15em; }
+  #main-navigation [data-testid="theme-toggle"] { transform: scale(.9); transform-origin: center; }
+}
 html { scrollbar-gutter: stable; }
 button, a, input { -webkit-tap-highlight-color: transparent; }
 #valuation-workspace-container .grid > *, #visual-showcase-section .grid > * { min-width: 0; }
@@ -57,7 +72,6 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
   #main-navigation .header-brand { gap: 0; }
 }
 
-.dark .brand-mark { --logo-ink: #b7d8f3; --logo-mid: #7dd3fc; }
 
 html { color-scheme: light; }
 html.dark { color-scheme: dark; }

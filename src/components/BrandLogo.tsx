@@ -56,21 +56,21 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
       >
         <defs>
           <linearGradient id={`${gradientId}-v`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--logo-ink, #0B1E36)" />
-            <stop offset="60%" stopColor="var(--logo-mid, #0F3260)" />
+            <stop offset="0%" stopColor="#0B1E36" />
+            <stop offset="60%" stopColor="#0F3260" />
             <stop offset="100%" stopColor="#0284C7" />
           </linearGradient>
           <linearGradient id={`${gradientId}-bar1`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--logo-mid, #0E2F59)" />
+            <stop offset="0%" stopColor="#0E2F59" />
             <stop offset="100%" stopColor="#0284C7" />
           </linearGradient>
           <linearGradient id={`${gradientId}-bar2`} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#0284C7" />
-            <stop offset="100%" stopColor="var(--logo-ink, #0B1E36)" />
+            <stop offset="100%" stopColor="#0B1E36" />
           </linearGradient>
           <linearGradient id={`${gradientId}-bar3`} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#0284C7" />
-            <stop offset="100%" stopColor="var(--logo-ink, #0B1E36)" />
+            <stop offset="100%" stopColor="#0B1E36" />
           </linearGradient>
         </defs>
 
@@ -83,7 +83,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
         {/* Diagonal connecting base */}
         <polygon
           points="60,90 82,90 98,54 78,54"
-          fill="var(--logo-ink, #0B1E36)"
+          fill="#0B1E36"
         />
 
         {/* Bar 1 (Shortest bar in ascending trio) */}

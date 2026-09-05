@@ -1,74 +1,186 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {animate, motion, useInView, useMotionValue, useReducedMotion, useTransform} from 'motion/react';
+import {useInView, useReducedMotion} from 'motion/react';
 import {FileText, FileSpreadsheet} from 'lucide-react';
 import {useLanguage} from '../i18n/LanguageContext';
 
 export function DocumentScanner() {
   const {language} = useLanguage();
-  const de = language === 'DE';
-  const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, {margin: '80px'});
-  const reduced = useReducedMotion();
-  const position = useMotionValue(55);
-  const clip = useTransform(position, p => `polygon(${p}% 0, 100% 0, 100% 100%, ${p}% 100%)`);
-  const left = useTransform(position, p => `${p}%`);
-  const [automatic, setAutomatic] = useState(true);
-  const [manual, setManual] = useState(55);
-  const running = automatic && !reduced;
-  useEffect(() => { if (reduced) setManual(Math.round(position.get())); }, [reduced, position]);
+  const isDe = language === 'DE';
+  const stageRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+  const visible = useInView(stageRef, {margin: '80px'});
+  const reducedMotion = useReducedMotion();
+  const [scanPos, setScanPos] = useState(50);
+  const currentPosition = useRef(50);
+  currentPosition.current = scanPos;
+  const [isAutoScanning, setIsAutoScanning] = useState(true);
   useEffect(() => {
-    if (!running || !inView) return;
-    const controls = animate(position, [position.get(), 85, 15, position.get()], {
-      duration: 8, repeat: Infinity, ease: 'easeInOut',
-    });
-    return () => controls.stop();
-  }, [running, inView, position]);
-  const toggle = () => {
-    if (running) setManual(Math.round(position.get()));
-    setAutomatic(!automatic);
+    if (!isAutoScanning || !visible || reducedMotion) return;
+    let frame = 0;
+    let previous = 0;
+    let phase = Math.acos(Math.max(-1, Math.min(1, (currentPosition.current - 50) / 50)));
+    const tick = (time: number) => {
+      if (previous) phase += Math.min(time - previous, 64) * 2 * Math.PI / 8000;
+      previous = time;
+      setScanPos(50 + 50 * Math.cos(phase));
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [isAutoScanning, visible, reducedMotion]);
+  const moveToPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    setIsAutoScanning(false);
+    setScanPos(Math.max(0, Math.min(100, (event.clientX - box.left) / box.width * 100)));
   };
-  const rows = de ? [
-    {label: 'PPA-Preis', raw: '§14.3: Abnahme zu 68 Euro je MWh.', value: '68,00 €/MWh', source: '§14.3 · Beispiel'},
-    {label: 'Jährliche Steigerung', raw: '§14.3: Jährliche Anpassung um 1,5 Prozent.', value: '1,50 % / Jahr', source: '§14.3 · Beispiel'},
-    {label: 'Abregelung', raw: '§14.4: Entschädigung oberhalb von 2 Prozent.', value: '> 2,00 %', source: '§14.4 · Beispiel'},
-  ] : [
-    {label: 'PPA price', raw: '§14.3: Purchase at 68 euros per MWh.', value: '€68.00/MWh', source: '§14.3 · Sample'},
-    {label: 'Annual escalation', raw: '§14.3: Adjust annually by 1.5 percent.', value: '1.50% / year', source: '§14.3 · Sample'},
-    {label: 'Curtailment', raw: '§14.4: Compensation above 2 percent.', value: '> 2.00%', source: '§14.4 · Sample'},
-  ];
-  return <div ref={ref} className="p-4 sm:p-8 space-y-4">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <h3 className="font-bold text-sm text-slate-900 dark:text-white">{de ? 'Vom Vertragstext zum Datenfeld' : 'From contract text to structured fields'}</h3>
-      <button type="button" disabled={!!reduced} aria-pressed={running} onClick={toggle}
-        className="px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 disabled:opacity-70 cursor-pointer">
-        {reduced ? (de ? 'Manueller Scan · reduzierte Bewegung' : 'Manual scan · reduced motion') : running ? (de ? 'Auto-Scan pausieren' : 'Pause Auto-Scan') : (de ? 'Auto-Scan fortsetzen' : 'Resume Auto-Scan')}
-      </button>
-    </div>
-    <p className="text-xs text-slate-500 dark:text-slate-400">{de ? 'Vorher/Nachher-Beispiel mit fiktivem Vertragstext. Keine echte Dokumentenextraktion. Pausieren und den Regler bis zum Rand bewegen, um beide Ansichten zu lesen.' : 'Before/after example with fictional contract text. No actual document extraction. Pause and move the slider to either edge to read both views.'}</p>
-    <div className="relative rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden" data-testid="scanner-stage">
-      <div className="p-4 sm:p-6 bg-slate-100 dark:bg-slate-950">
-        <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-700 dark:text-slate-300"><FileText className="w-4 h-4 shrink-0"/>{de ? 'Vertrag · Beispiel' : 'Contract · Sample'}</div>
-        <div className="space-y-3">{rows.map(row => <div key={row.label} className="h-28 sm:h-24 rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">{row.label}</p>
-          <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">{row.raw}</p>
-        </div>)}</div>
-      </div>
-      <motion.div style={{clipPath: clip}} className="absolute inset-0 p-4 sm:p-6 bg-white dark:bg-slate-900">
-        <div className="flex items-center gap-2 mb-4 text-sm font-bold text-emerald-700 dark:text-emerald-400"><FileSpreadsheet className="w-4 h-4 shrink-0"/>{de ? 'Datenfelder · Beispiel' : 'Fields · Sample'}</div>
-        <div className="space-y-3">{rows.map(row => <div key={row.label} className="h-28 sm:h-24 rounded-lg border border-blue-200 dark:border-blue-900 p-3">
-          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">{row.label}</p>
-          <p className="mt-1 font-mono text-base font-bold text-blue-600 dark:text-sky-400">{row.value}</p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">{row.source}</p>
-        </div>)}</div>
-      </motion.div>
-      <motion.div style={{left}} aria-hidden="true" className="absolute top-0 bottom-0 w-0.5 bg-sky-400 shadow-[0_0_12px_#38bdf8] pointer-events-none" />
-    </div>
-    <label className="block text-xs text-slate-600 dark:text-slate-400">
-      <span className="flex justify-between gap-3 mb-2"><span>{de ? 'Vollständige Datenfelder' : 'Full structured fields'}</span><span>{de ? 'Vollständiger Vertrag' : 'Full contract text'}</span></span>
-      <input type="range" min="0" max="100" value={running ? 55 : manual} disabled={running}
-        aria-label={de ? 'Scan-Position' : 'Scan position'}
-        onChange={event => {const value = Number(event.target.value); setManual(value); position.set(value);}}
-        className="w-full accent-blue-600 h-6 disabled:opacity-40 cursor-ew-resize" />
-    </label>
+  return <div ref={stageRef} className="p-4 sm:p-8">
+                {/* Header bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-6 border-b border-slate-200 dark:border-slate-800 text-xs font-mono">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse" />
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      {isDe ? 'INTERAKTIVER LASER-SCANNER & ANALYSE-LINSE' : 'INTERACTIVE LASER SCANNER & LENS'}
+                    </span>
+                    <span className="text-slate-400">· {isDe ? 'Linie ziehen zum Vergleichen ↔' : 'Drag the line to compare ↔'}</span>
+                  </div>
+                  <button
+                    type="button"
+                    aria-pressed={isAutoScanning}
+                    onClick={() => setIsAutoScanning(!isAutoScanning)}
+                    className="px-3 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    {isAutoScanning
+                      ? (isDe ? 'Pause' : 'Pause')
+                      : (isDe ? 'Abspielen' : 'Play')}
+                  </button>
+                </div>
+
+                {/* Laser Split Screen Stage */}
+                <div className="relative mt-6 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50 dark:bg-slate-950 h-[520px] sm:h-[380px] select-none">
+                  {/* Left Side: Raw Messy PDF View */}
+                  <div className="absolute inset-0 p-3 sm:p-6 flex flex-col justify-between opacity-80">
+                    <div className="space-y-3 font-mono text-xs text-slate-400 dark:text-slate-500">
+                      <div className="flex items-center gap-2 text-red-500 font-bold text-sm">
+                        <FileText className="w-4 h-4" />
+                        <span>{isDe ? 'ROHER TRANSAKTIONSVERTRAG · PPA' : 'RAW TRANSACTION CONTRACT · PPA Agreement'}</span>
+                      </div>
+                      <p className="line-through text-slate-400">
+                        Section 14.3: The Buyer covenants to purchase the electrical output generated by the Seller's Facility at the Base Price of €68.00 per Megawatt-hour (MWh), subject to annual compounding escalation of 1.5% beginning on the Commercial Operation Date (COD)...
+                      </p>
+                      <p className="text-slate-400">
+                        Section 14.4 (Curtailment Indemnity): In the event of system grid constraints instructed by the Transmission System Operator (TSO) exceeding 2.0% of nominal P50 output, the Buyer shall compensate the Seller for deemed generated energy calculated in accordance with Schedule C...
+                      </p>
+                      <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-[11px]">
+                        {isDe
+                          ? '⚠️ Unstrukturierter Text, komplexe Vertragssprache, manuelles Übertragungsrisiko über 380 Seiten.'
+                          : '⚠️ Unstructured text, complex legal syntax, manual copy-paste risk across 380 pages.'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Side: Clean Structured Excel DCF View (revealed by laser position) */}
+                  <div
+                    className="absolute inset-0 bg-white dark:bg-[#071322] overflow-hidden"
+                    style={{ clipPath: `polygon(${scanPos}% 0, 100% 0, 100% 100%, ${scanPos}% 100%)` }}
+                  >
+                    <div className="p-3 sm:p-6 h-full flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs sm:text-sm font-mono">
+                            <FileSpreadsheet className="w-4.5 h-4.5" />
+                            <span>{isDe ? 'VALFENCE DCF-MODELL (\'Revenue_Engine\'!A1:F20)' : 'VALFENCE DCF MODEL (\'Revenue_Engine\'!A1:F20)'}</span>
+                          </div>
+                          <span className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">
+                            {isDe ? 'Demo' : 'Demo'}
+                          </span>
+                        </div>
+
+                        {/* Excel Table simulation */}
+                        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 font-mono text-xs">
+                          <table className="w-full text-left">
+                            <thead className="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+                              <tr>
+                                <th className="p-2 whitespace-nowrap text-slate-500 font-bold">{isDe ? 'Zelle' : 'Cell'}</th>
+                                <th className="p-2 text-slate-500 font-bold">{isDe ? 'Parameter' : 'Parameter'}</th>
+                                <th className="p-2 text-slate-500 font-bold">{isDe ? 'Wert' : 'Value'}</th>
+                                <th className="hidden sm:table-cell p-2 text-slate-500 font-bold">{isDe ? 'Excel-Formel' : 'Excel Formula'}</th>
+                                <th className="hidden sm:table-cell p-2 text-slate-500 font-bold">{isDe ? 'Prüfquelle' : 'Audit Source'}</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
+                              <tr className="hover:bg-blue-50/50 dark:hover:bg-blue-950/40">
+                                <td className="p-2 text-blue-600 dark:text-sky-400 font-bold">B12</td>
+                                <td className="p-2 text-slate-800 dark:text-slate-200">{isDe ? 'PPA-Basispreis' : 'Base PPA Price'}</td>
+                                <td className="p-2 font-bold text-slate-900 dark:text-white">€68.00/MWh</td>
+                                <td className="hidden sm:table-cell p-2 text-emerald-600 dark:text-emerald-400 font-semibold">=Assumptions!C12</td>
+                                <td className="hidden sm:table-cell p-2 text-slate-500">PPA Doc p. 14 §14.3</td>
+                              </tr>
+                              <tr className="hover:bg-blue-50/50 dark:hover:bg-blue-950/40">
+                                <td className="p-2 text-blue-600 dark:text-sky-400 font-bold">B13</td>
+                                <td className="p-2 text-slate-800 dark:text-slate-200">{isDe ? 'Preissteigerungsrate' : 'Escalation Rate'}</td>
+                                <td className="p-2 font-bold text-slate-900 dark:text-white">1.50% / {isDe ? 'a' : 'yr'}</td>
+                                <td className="hidden sm:table-cell p-2 text-emerald-600 dark:text-emerald-400 font-semibold">=Assumptions!C13</td>
+                                <td className="hidden sm:table-cell p-2 text-slate-500">PPA Doc p. 14 §14.3</td>
+                              </tr>
+                              <tr className="hover:bg-blue-50/50 dark:hover:bg-blue-950/40">
+                                <td className="p-2 text-blue-600 dark:text-sky-400 font-bold">C14</td>
+                                <td className="p-2 text-slate-800 dark:text-slate-200">{isDe ? 'Abregelungs-Entschädigung' : 'Curtailment Indemnity'}</td>
+                                <td className="p-2 font-bold text-slate-900 dark:text-white">&gt; 2.0% Deemed</td>
+                                <td className="hidden sm:table-cell p-2 text-emerald-600 dark:text-emerald-400 font-semibold">=IF(Loss&gt;2%,...)</td>
+                                <td className="hidden sm:table-cell p-2 text-slate-500">PPA Doc p. 15 §14.4</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3 items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-800">
+                        <span>{isDe ? 'Deterministisches Python-Parsing + strenger Analysten-Freigabeprozess' : 'Deterministic Python parsing + strict analyst sign-off checkpoint'}</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold font-mono">
+                          {isDe ? 'Keine manuellen Tippfehler ✓' : 'Zero Manual Keying Error ✓'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Glowing Laser Vertical Line Indicator */}
+                  <div
+                    className="absolute top-0 bottom-0 w-1 bg-sky-400 shadow-[0_0_15px_rgba(56,189,248,1)] pointer-events-none"
+                    style={{ left: `${scanPos}%` }}
+                  >
+                    <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 px-3 py-2 rounded bg-sky-500 text-white font-mono text-[11px] font-bold uppercase tracking-widest whitespace-nowrap shadow-lg">
+                      ↔ {isDe ? 'Ziehen' : 'Drag'}
+                    </div>
+                  </div>
+
+                  {/* Drag overlay slider control */}
+                  <div
+                    role="slider"
+                    tabIndex={0}
+                    aria-label={isDe ? 'Dokument und Excel vergleichen: Linie ziehen' : 'Compare document and Excel: drag the line'}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(scanPos)}
+                    aria-valuetext={isDe ? `${Math.round(scanPos)} Prozent Vertrag` : `${Math.round(scanPos)} percent contract`}
+                    onPointerDown={event => {
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      dragging.current = true;
+                      moveToPointer(event);
+                    }}
+                    onPointerMove={event => { if (dragging.current) moveToPointer(event); }}
+                    onPointerUp={() => { dragging.current = false; }}
+                    onPointerCancel={() => { dragging.current = false; }}
+                    onKeyDown={event => {
+                      const next = event.key === 'Home' ? 0 : event.key === 'End' ? 100
+                        : event.key === 'ArrowLeft' ? scanPos - 5 : event.key === 'ArrowRight' ? scanPos + 5 : null;
+                      if (next === null) return;
+                      event.preventDefault();
+                      setIsAutoScanning(false);
+                      setScanPos(Math.max(0, Math.min(100, next)));
+                    }}
+                    className="absolute inset-0 cursor-ew-resize z-20 touch-pan-y focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
+                  />
+                </div>
+    <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">{isDe ? 'Fiktiver Vertrag und illustrative Excel-Vorschau. Keine echte Dokumentenverarbeitung.' : 'Fictional contract and illustrative Excel preview. No actual document processing.'}</p>
   </div>;
 }

@@ -103,16 +103,15 @@ function MainAppContent() {
           }
 
           // Check sections relative to a 180px viewport trigger line
-          const viewportCheckLine = 180;
+          const viewportCheckLine = (document.getElementById('main-navigation')?.getBoundingClientRect().height ?? 72) + 80;
           let currentActive = '';
 
           for (const sec of sections) {
             const el = document.getElementById(sec.id);
             if (el) {
               const rect = el.getBoundingClientRect();
-              if (rect.top <= viewportCheckLine && rect.bottom > viewportCheckLine) {
+              if (rect.top <= viewportCheckLine) {
                 currentActive = sec.id;
-                break;
               }
             }
           }
@@ -143,7 +142,7 @@ function MainAppContent() {
   const handleExploreWorkflow = () => {
     const el = document.getElementById('concept-section');
     if (el) {
-      const yOffset = -76;
+      const yOffset = -(document.getElementById('main-navigation')?.getBoundingClientRect().height ?? 72) - 8;
       const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
       window.scrollTo({ top: y, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
     }

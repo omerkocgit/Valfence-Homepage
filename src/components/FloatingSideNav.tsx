@@ -30,7 +30,7 @@ export const FloatingSideNav: React.FC<FloatingSideNavProps> = ({ activeSection 
     trackEvent('side_nav_click', { section: label });
     const el = document.getElementById(id);
     if (el) {
-      const yOffset = -76;
+      const yOffset = -(document.getElementById('main-navigation')?.getBoundingClientRect().height ?? 72) - 8;
       const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
       window.scrollTo({ top: y, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
     }
@@ -39,7 +39,7 @@ export const FloatingSideNav: React.FC<FloatingSideNavProps> = ({ activeSection 
   return (
     <aside
       aria-label="Section navigation"
-      className="fixed right-3 sm:right-5 top-1/2 -translate-y-1/2 z-40 hidden min-[1440px]:flex flex-col items-end gap-3 pointer-events-none"
+      className="fixed right-3 sm:right-5 top-1/2 -translate-y-1/2 z-40 hidden md:flex flex-col items-end gap-3 pointer-events-none"
     >
       <div className="p-2 rounded-full bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/80 dark:border-slate-800/80 shadow-md flex flex-col gap-2.5 pointer-events-auto">
         {sections.map((sec) => {
