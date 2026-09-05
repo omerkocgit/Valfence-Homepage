@@ -4,7 +4,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { LanguageProvider } from './i18n/LanguageContext';
+import { MotionConfig } from 'motion/react';
+import { DemoProvider } from './data/DemoContext';
+import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { Header } from './components/Header';
 import { Hero } from './components/Hero';
 import { AudienceStrip } from './components/AudienceStrip';
@@ -29,12 +31,13 @@ import { initClarity, getSavedConsent } from './services/clarity';
 export default function App() {
   return (
     <LanguageProvider>
-      <MainAppContent />
+      <MotionConfig reducedMotion="user"><DemoProvider><MainAppContent /></DemoProvider></MotionConfig>
     </LanguageProvider>
   );
 }
 
 function MainAppContent() {
+  const {language} = useLanguage();
   const [activeModal, setActiveModal] = useState<ModalType>('none');
   const [isOpenConsentSettings, setIsOpenConsentSettings] = useState<boolean>(false);
   const [isDark, setIsDark] = useState<boolean>(false);
@@ -42,7 +45,8 @@ function MainAppContent() {
 
   // Initialize theme from localStorage or default to clean light mode
   useEffect(() => {
-    const savedTheme = localStorage.getItem('valfence_theme');
+    let savedTheme: string | null = null;
+    try { savedTheme = localStorage.getItem('valfence_theme'); } catch { /* Storage may be blocked. */ }
     if (savedTheme === 'dark') {
       setIsDark(true);
       document.documentElement.classList.add('dark');
@@ -57,10 +61,10 @@ function MainAppContent() {
       const next = !prev;
       if (next) {
         document.documentElement.classList.add('dark');
-        localStorage.setItem('valfence_theme', 'dark');
+        try { localStorage.setItem('valfence_theme', 'dark'); } catch { /* Session-only theme. */ }
       } else {
         document.documentElement.classList.remove('dark');
-        localStorage.setItem('valfence_theme', 'light');
+        try { localStorage.setItem('valfence_theme', 'light'); } catch { /* Session-only theme. */ }
       }
       return next;
     });
@@ -141,7 +145,7 @@ function MainAppContent() {
     if (el) {
       const yOffset = -76;
       const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
-      window.scrollTo({ top: y, behavior: 'smooth' });
+      window.scrollTo({ top: y, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
     }
   };
 
@@ -151,6 +155,7 @@ function MainAppContent() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white transition-colors duration-200 relative w-full">
+      <a href="#main-content" className="skip-link">{language === 'DE' ? 'Zum Inhalt' : 'Skip to content'}</a>
       {/* 0. Top Viewport Scroll Progress Bar */}
       <ScrollProgressBar />
 
@@ -169,7 +174,7 @@ function MainAppContent() {
       <FloatingSideNav activeSection={activeSection} />
 
       {/* 3. Main Content with Top Padding to accommodate the 72px (h-18) fixed header */}
-      <main className="flex-1 relative z-10 pt-18">
+      <main id="main-content" tabIndex={-1} className="flex-1 relative z-10 pt-18">
         {/* 1. Hero Section with Motion Reveals */}
         <div className="snap-section">
           <Hero onExploreClick={handleExploreWorkflow} />
@@ -240,7 +245,7 @@ function MainAppContent() {
 
       {/* 15. GDPR Cookie & Microsoft Clarity Consent Banner / Modal */}
       <ConsentBanner
-        isOpenSettings={isOpenConsentSettings}
+        forceOpenSettings={isOpenConsentSettings}
         onCloseSettings={() => setIsOpenConsentSettings(false)}
       />
     </div>

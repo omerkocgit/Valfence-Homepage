@@ -6,6 +6,8 @@
 import React, { useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
+import type { ValuationAssumption } from '../types';
+import type { DCFCalculationResult } from '../data/mockValuation';
 import { useLanguage } from '../i18n/LanguageContext';
 
 interface BenchmarkItem {
@@ -23,7 +25,7 @@ interface BenchmarkItem {
   notes: string;
 }
 
-export const BenchmarkWidget: React.FC = () => {
+export const BenchmarkWidget = ({assumptions, result}: {assumptions: ValuationAssumption[]; result: DCFCalculationResult}) => {
   const { language } = useLanguage();
   const isDe = language === 'DE';
   const [assetType, setAssetType] = useState<'wind' | 'solar' | 'bess'>('wind');
@@ -79,7 +81,7 @@ export const BenchmarkWidget: React.FC = () => {
     },
     {
       id: 'ppa',
-      metric: isDe ? '10-Jahres-PPA-Ausübungspreis' : '10-Year PPA Strike Price',
+      metric: isDe ? 'Durchschnittlicher Strompreis' : 'Average power price',
       unit: '€/MWh',
       dealValue: 72.0,
       marketMin: 58.0,
@@ -95,7 +97,7 @@ export const BenchmarkWidget: React.FC = () => {
     },
     {
       id: 'irr',
-      metric: isDe ? 'Eigenkapital-IRR (Base Case)' : 'Base Case Equity IRR',
+      metric: isDe ? 'Eigenkapital-IRR (Szenario)' : 'Current scenario Equity IRR',
       unit: '%',
       dealValue: 9.82,
       marketMin: 7.20,
@@ -277,12 +279,27 @@ export const BenchmarkWidget: React.FC = () => {
     },
   ];
 
-  const currentItems =
+  const sampleItems =
     assetType === 'wind'
       ? windBenchmarks
       : assetType === 'solar'
       ? solarBenchmarks
       : bessBenchmarks;
+
+  const currentItems = sampleItems.map(item => {
+    const valueById: Record<string, number> = {
+      capex: 1250,
+      ncf: assumptions.find(a => a.id === 'ncf_p50')!.currentValue,
+      opex: assumptions.find(a => a.id === 'fixed_opex')!.currentValue,
+      ppa: assumptions.find(a => a.id === 'merchant_power_price')!.currentValue,
+      irr: result.equityIRR,
+    };
+    const dealValue = assetType === 'wind' ? (valueById[item.id] ?? item.dealValue) : item.dealValue;
+    return {...item, dealValue,
+      source: isDe ? 'Fiktive Demo-Bandbreite' : 'Illustrative sample band',
+      notes: isDe ? 'Beispielvergleich; keine aktuellen oder verifizierten Marktdaten.' : 'Example comparison; not current or verified market data.',
+    };
+  });
 
   return (
     <div className="bg-slate-50/80 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700/80 p-4 sm:p-5 space-y-4">
@@ -294,7 +311,7 @@ export const BenchmarkWidget: React.FC = () => {
               {isDe ? 'Markt-Benchmarking Intelligence' : 'Market Benchmarking Intelligence'}
             </span>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-              {isDe ? 'Q2-2026 Datensätze' : 'Q2-2026 Datasets'}
+              {isDe ? 'Beispieldaten' : 'Sample data'}
             </span>
           </div>
           <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-0.5">
@@ -303,8 +320,9 @@ export const BenchmarkWidget: React.FC = () => {
         </div>
 
         {/* Technology Selector Tabs */}
-        <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-200/90 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold shrink-0">
+        <div className="inline-flex flex-wrap items-center p-0.5 rounded-lg bg-slate-200/90 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold shrink-0">
           <button
+            aria-pressed={assetType === 'wind'}
             onClick={() => setAssetType('wind')}
             className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
               assetType === 'wind'
@@ -312,9 +330,10 @@ export const BenchmarkWidget: React.FC = () => {
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            💨 {isDe ? 'Onshore-Wind (Aktiver Deal)' : 'Onshore Wind (Active Deal)'}
+            💨 {isDe ? 'Wind (Demo)' : 'Wind (Demo)'}
           </button>
           <button
+            aria-pressed={assetType === 'solar'}
             onClick={() => setAssetType('solar')}
             className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
               assetType === 'solar'
@@ -325,6 +344,7 @@ export const BenchmarkWidget: React.FC = () => {
             ☀️ {isDe ? 'Solar-PV' : 'Solar PV'}
           </button>
           <button
+            aria-pressed={assetType === 'bess'}
             onClick={() => setAssetType('bess')}
             className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
               assetType === 'bess'
@@ -342,8 +362,8 @@ export const BenchmarkWidget: React.FC = () => {
         <Sparkles className="w-4 h-4 text-blue-600 dark:text-sky-400 shrink-0 mt-0.5" />
         <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
           {isDe
-            ? 'VALFENCE gleicht jeden extrahierten Datenpunkt automatisch mit institutionellen Markt-Benchmarks (IRENA, BNEF, Pexapark, DNV) ab, um aggressive Bewertungsannahmen vor der Prüfung im Investitionsausschuss hervorzuheben.'
-            : 'VALFENCE automatically cross-references every extracted data point against institutional market benchmarks (IRENA, BNEF, Pexapark, DNV) to highlight aggressive underwriting assumptions before Investment Committee review.'}
+            ? 'Wind zeigt die aktuellen Demo-Eingaben. Solar und Speicher sind separate Beispiele. Alle Vergleichsbandbreiten sind illustrativ.'
+            : 'Wind reflects the current workspace inputs. Solar and storage are separate examples. All comparison bands are illustrative.'}
         </p>
       </div>
 
@@ -382,17 +402,17 @@ export const BenchmarkWidget: React.FC = () => {
                       {isDe ? 'Deal-Wert' : 'Deal Value'}
                     </span>
                     <div className="text-base font-extrabold font-mono text-blue-600 dark:text-sky-400">
-                      {item.dealValue.toLocaleString()} {item.unit}
+                      {item.dealValue.toLocaleString(isDe ? 'de-DE' : 'en-GB', {maximumFractionDigits: 2})} {item.unit}
                     </div>
                   </div>
                   <span
                     className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded border ${
-                      item.assessment === 'favorable'
+                      item.dealValue >= item.marketMin && item.dealValue <= item.marketMax
                         ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                         : 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-sky-300 border-blue-200 dark:border-blue-800'
                     }`}
                   >
-                    {item.assessment === 'favorable' ? (isDe ? '✓ Günstig' : '✓ Favorable') : (isDe ? '✓ Im Marktschnitt' : '✓ In-Line')}
+                    {item.dealValue >= item.marketMin && item.dealValue <= item.marketMax ? (isDe ? 'In Beispielband' : 'Inside sample band') : (isDe ? 'Außerhalb Beispielband' : 'Outside sample band')}
                   </span>
                 </div>
               </div>
@@ -414,7 +434,7 @@ export const BenchmarkWidget: React.FC = () => {
                   <div
                     className="absolute top-0 bottom-0 w-0.5 bg-slate-400 dark:bg-slate-500 z-10"
                     style={{ left: `${medianPos}%` }}
-                    title={`Market Median: ${item.marketMedian} ${item.unit}`}
+                    title={`Market Median: ${item.marketMedian.toLocaleString(isDe ? 'de-DE' : 'en-GB')} ${item.unit}`}
                   />
 
                   {/* Deal Pinpoint Marker */}
@@ -431,11 +451,11 @@ export const BenchmarkWidget: React.FC = () => {
 
                 {/* Range Labels */}
                 <div className="flex justify-between items-center text-[10px] font-mono text-slate-400 pt-1.5">
-                  <span>Min: {item.marketMin}</span>
+                  <span>Min: {item.marketMin.toLocaleString(isDe ? 'de-DE' : 'en-GB')}</span>
                   <span className="text-slate-500 dark:text-slate-400 font-semibold">
-                    {isDe ? 'Markt-Median: ' : 'Market Median: '}{item.marketMedian} {item.unit}
+                    {isDe ? 'Markt-Median: ' : 'Market Median: '}{item.marketMedian.toLocaleString(isDe ? 'de-DE' : 'en-GB')} {item.unit}
                   </span>
-                  <span>Max: {item.marketMax}</span>
+                  <span>Max: {item.marketMax.toLocaleString(isDe ? 'de-DE' : 'en-GB')}</span>
                 </div>
               </div>
 

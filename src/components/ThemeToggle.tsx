@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import { Sun, Moon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { trackEvent } from '../services/clarity';
@@ -14,17 +15,20 @@ interface ThemeToggleProps {
 }
 
 export const ThemeToggle: React.FC<ThemeToggleProps> = ({ isDark, onToggle }) => {
+  const {language} = useLanguage();
+  const de = language === 'DE';
+  const label = de ? (isDark ? 'Helles Design aktivieren' : 'Dunkles Design aktivieren') : (isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode');
   return (
     <button
-      id="theme-toggle-btn"
+      data-testid="theme-toggle"
       type="button"
       onClick={() => {
         onToggle();
         trackEvent('theme_toggled', { mode: !isDark ? 'dark' : 'light' });
       }}
       className="relative flex items-center p-1 rounded-full border border-slate-200 dark:border-slate-700/80 bg-slate-100/90 dark:bg-slate-900/90 shadow-2xs hover:border-slate-300 dark:hover:border-slate-600 transition-colors select-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-      aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-      title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+      aria-label={label}
+      title={label}
     >
       <div className="relative flex items-center gap-1">
         {/* Animated Sliding Pill Background */}
@@ -52,7 +56,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({ isDark, onToggle }) =>
           >
             <Sun className={`w-3.5 h-3.5 ${!isDark ? 'text-amber-500' : 'text-slate-400'}`} />
           </motion.div>
-          <span className="hidden sm:inline">Light</span>
+          <span className="hidden sm:inline">{de ? 'Hell' : 'Light'}</span>
         </span>
 
         {/* Dark Option */}
@@ -69,7 +73,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({ isDark, onToggle }) =>
           >
             <Moon className={`w-3.5 h-3.5 ${isDark ? 'text-sky-400' : 'text-slate-400'}`} />
           </motion.div>
-          <span className="hidden sm:inline">Dark</span>
+          <span className="hidden sm:inline">{de ? 'Dunkel' : 'Dark'}</span>
         </span>
       </div>
     </button>

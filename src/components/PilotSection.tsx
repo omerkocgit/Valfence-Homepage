@@ -149,6 +149,7 @@ export const PilotSection: React.FC = () => {
               return (
                 <button
                   key={c.id}
+                  aria-pressed={!!selectedCriteria[c.id]}
                   onClick={() => toggleCriterion(c.id)}
                   className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 cursor-pointer ${
                     isSelected
@@ -203,7 +204,7 @@ export const PilotSection: React.FC = () => {
             </div>
 
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {t.pilot.directContactLabel}: info.valfence@gmail.com
+              {t.pilot.directContactLabel} info.valfence@gmail.com
             </p>
           </div>
         </div>

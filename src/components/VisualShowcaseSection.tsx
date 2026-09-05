@@ -19,8 +19,10 @@ import {
   Layers,
   ChevronRight,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { trackEvent } from '../services/clarity';
+import { DocumentScanner } from './DocumentScanner';
+import { INITIAL_ASSUMPTIONS, calculateDeterministicDCF } from '../data/mockValuation';
 import { useLanguage } from '../i18n/LanguageContext';
 
 type VisualMode = 'graph' | 'simulator' | 'scanner';
@@ -28,6 +30,8 @@ type VisualMode = 'graph' | 'simulator' | 'scanner';
 export const VisualShowcaseSection: React.FC = () => {
   const { t, language } = useLanguage();
   const isDe = language === 'DE';
+  const reducedMotion = useReducedMotion();
+  const fmt = (value: number, digits = 1) => value.toLocaleString(isDe ? 'de-DE' : 'en-GB', {minimumFractionDigits: digits, maximumFractionDigits: digits});
   const [activeMode, setActiveMode] = useState<VisualMode>('graph');
 
   // Graph state: selected active node
@@ -39,10 +43,6 @@ export const VisualShowcaseSection: React.FC = () => {
   const [ppaPrice, setPpaPrice] = useState<number>(68); // €/MWh
   const [assetType, setAssetType] = useState<'wind' | 'solar' | 'hybrid'>('wind');
 
-  // Scanner state: scan position (0 to 100)
-  const [scanPos, setScanPos] = useState<number>(55);
-  const [isAutoScanning, setIsAutoScanning] = useState<boolean>(true);
-
   // Derived calculations for the simulator (memoized for peak performance)
   const { netGenGWh, annualRevenueM, calculatedIRR, calculatedDSCR } = useMemo(() => {
     const baseCapacityMW = 120;
@@ -50,10 +50,13 @@ export const VisualShowcaseSection: React.FC = () => {
       assetType === 'wind'
         ? (Math.pow(windSpeed / 7.5, 3) * baseCapacityMW * 8760 * 0.35) / 1000
         : (baseCapacityMW * 8760 * 0.22 * (windSpeed / 7)) / 1000;
-    const netGen = Math.max(10, theoretical * (1 - curtailment / 100));
+    const netGen = Math.min(baseCapacityMW * 8760 / 1000, Math.max(10, theoretical * (1 - curtailment / 100)));
     const annualRev = (netGen * 1000 * ppaPrice) / 1000000;
-    const irr = Math.min(16, Math.max(4.2, 5.5 + (annualRev - 18) * 0.45));
-    const dscr = (1.18 + (annualRev - 18) * 0.025).toFixed(2);
+    const demo = calculateDeterministicDCF(120, INITIAL_ASSUMPTIONS.map(a =>
+      a.id === 'ncf_p50' ? {...a, currentValue: netGen * 1000 / (120 * 8760) * 100}
+      : a.id === 'merchant_power_price' ? {...a, currentValue: ppaPrice} : a));
+    const irr = demo.equityIRR;
+    const dscr = demo.dscrMin;
     return {
       netGenGWh: netGen,
       annualRevenueM: annualRev,
@@ -91,6 +94,7 @@ export const VisualShowcaseSection: React.FC = () => {
           {/* Mode Switcher Tabs - Grid of 3, cleanly fitting without horizontal scroll */}
           <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs w-full lg:w-auto shrink-0">
             <button
+              aria-pressed={activeMode === 'graph'}
               onClick={() => handleModeChange('graph')}
               className={`flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
                 activeMode === 'graph'
@@ -102,6 +106,7 @@ export const VisualShowcaseSection: React.FC = () => {
               <span className="truncate">{t.visualShowcase.tabGraph}</span>
             </button>
             <button
+              aria-pressed={activeMode === 'simulator'}
               onClick={() => handleModeChange('simulator')}
               className={`flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
                 activeMode === 'simulator'
@@ -113,6 +118,7 @@ export const VisualShowcaseSection: React.FC = () => {
               <span className="truncate">{t.visualShowcase.tabSimulator}</span>
             </button>
             <button
+              aria-pressed={activeMode === 'scanner'}
               onClick={() => handleModeChange('scanner')}
               className={`flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-lg text-xs font-bold transition-all text-center cursor-pointer ${
                 activeMode === 'scanner'
@@ -141,12 +147,13 @@ export const VisualShowcaseSection: React.FC = () => {
                 transition={{ duration: 0.35 }}
                 className="p-6 sm:p-8"
               >
+                <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">{isDe ? 'Fiktives Quellenbeispiel, unabhängig vom Arbeitsbereich. Keine echte Dokumentenextraktion.' : 'Fixed sample source workflow; independent of the live workspace. No actual document extraction.'}</p>
                 {/* Header bar */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-6 border-b border-slate-200 dark:border-slate-800 text-xs font-mono">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                     <span className="font-bold text-slate-800 dark:text-slate-200">
-                      {isDe ? 'ECHTZEIT-TRANSAKTIONSDATEN-PIPELINE' : 'LIVE TRANSACTION DATA PIPELINE'}
+                      {isDe ? 'ILLUSTRATIVER QUELLEN-WORKFLOW' : 'ILLUSTRATIVE SOURCE WORKFLOW'}
                     </span>
                     <span className="text-slate-400">· {isDe ? 'Interaktive Provenienz-Topologie' : 'Interactive Provenance Topology'}</span>
                   </div>
@@ -207,7 +214,11 @@ export const VisualShowcaseSection: React.FC = () => {
                         </span>
 
                         <button
-                          onClick={() => setSelectedNode('dnv-yield')}
+                          role="button"
+                        tabIndex={0}
+                        aria-pressed={selectedNode === 'dnv-yield'}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedNode('dnv-yield'); } }}
+                        onClick={() => setSelectedNode('dnv-yield')}
                           className={`w-full p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                             selectedNode === 'dnv-yield'
                               ? 'bg-blue-50 dark:bg-blue-950/80 border-blue-500 dark:border-sky-400 shadow-sm'
@@ -224,12 +235,16 @@ export const VisualShowcaseSection: React.FC = () => {
                             </span>
                           </div>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            {isDe ? '365 GWh/a · 34,8 % NCF · 42 Turbinen' : '365 GWh/yr · 34.8% NCF · 42 Turbines'}
+                            {isDe ? '365,8 GWh/a · 34,8 % NCF · 30 × 4 MW' : '365.8 GWh/yr · 34.8% NCF · 30 × 4 MW'}
                           </p>
                         </button>
 
                         <button
-                          onClick={() => setSelectedNode('ppa-terms')}
+                          role="button"
+                        tabIndex={0}
+                        aria-pressed={selectedNode === 'ppa-terms'}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedNode('ppa-terms'); } }}
+                        onClick={() => setSelectedNode('ppa-terms')}
                           className={`w-full p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                             selectedNode === 'ppa-terms'
                               ? 'bg-blue-50 dark:bg-blue-950/80 border-blue-500 dark:border-sky-400 shadow-sm'
@@ -251,7 +266,11 @@ export const VisualShowcaseSection: React.FC = () => {
                         </button>
 
                         <button
-                          onClick={() => setSelectedNode('capex-quote')}
+                          role="button"
+                        tabIndex={0}
+                        aria-pressed={selectedNode === 'capex-quote'}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedNode('capex-quote'); } }}
+                        onClick={() => setSelectedNode('capex-quote')}
                           className={`w-full p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                             selectedNode === 'capex-quote'
                               ? 'bg-blue-50 dark:bg-blue-950/80 border-blue-500 dark:border-sky-400 shadow-sm'
@@ -268,7 +287,7 @@ export const VisualShowcaseSection: React.FC = () => {
                             </span>
                           </div>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            {isDe ? '1,25 Mio. €/MW CapEx · 24k €/MW OpEx' : '€1.25M/MW Capex · €24k/MW Opex'}
+                            {isDe ? '1,25 Mio. €/MW CapEx · 24k €/MW OpEx' : '€1.25M/MW Capex · €24.5k/MW Opex'}
                           </p>
                         </button>
                       </div>
@@ -280,7 +299,11 @@ export const VisualShowcaseSection: React.FC = () => {
                         </span>
 
                         <button
-                          onClick={() => setSelectedNode('ai-gate')}
+                          role="button"
+                        tabIndex={0}
+                        aria-pressed={selectedNode === 'ai-gate'}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedNode('ai-gate'); } }}
+                        onClick={() => setSelectedNode('ai-gate')}
                           className={`w-full p-4 rounded-xl border text-left transition-all cursor-pointer ${
                             selectedNode === 'ai-gate'
                               ? 'bg-blue-50 dark:bg-blue-950/90 border-blue-500 dark:border-sky-400 shadow-md ring-2 ring-blue-500/20'
@@ -297,7 +320,7 @@ export const VisualShowcaseSection: React.FC = () => {
                           <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed mb-3">
                             {isDe
                               ? 'Extrahiert 48 Parameter mit exakten Zitat-Koordinaten. Keine KI-Halluzinationen.'
-                              : 'Extracts 48 parameters with citation coordinates. Zero hallucination guarantee.'}
+                              : 'Extracts 48 parameters with citation coordinates. Illustrative review checkpoint.'}
                           </p>
                           <div className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
                             <CheckCircle2 className="w-3 h-3" />
@@ -313,7 +336,11 @@ export const VisualShowcaseSection: React.FC = () => {
                         </span>
 
                         <button
-                          onClick={() => setSelectedNode('excel-output')}
+                          role="button"
+                        tabIndex={0}
+                        aria-pressed={selectedNode === 'excel-output'}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedNode('excel-output'); } }}
+                        onClick={() => setSelectedNode('excel-output')}
                           className={`w-full p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                             selectedNode === 'excel-output'
                               ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-500 dark:border-emerald-400 shadow-sm'
@@ -340,7 +367,11 @@ export const VisualShowcaseSection: React.FC = () => {
                         </button>
 
                         <button
-                          onClick={() => setSelectedNode('audit-memo')}
+                          role="button"
+                        tabIndex={0}
+                        aria-pressed={selectedNode === 'audit-memo'}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedNode('audit-memo'); } }}
+                        onClick={() => setSelectedNode('audit-memo')}
                           className={`w-full p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                             selectedNode === 'audit-memo'
                               ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-500 dark:border-emerald-400 shadow-sm'
@@ -394,12 +425,12 @@ export const VisualShowcaseSection: React.FC = () => {
                             <span className="font-bold text-slate-900 dark:text-white">412 GWh/a</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">{isDe ? 'Parkabschattung:' : 'Wake Loss Factor:'}</span>
-                            <span className="text-amber-600 dark:text-amber-400">{isDe ? '7,2 % abgezogen' : '7.2% deducted'}</span>
+                            <span className="text-slate-500">{isDe ? 'Gesamtverluste:' : 'Total Loss Factor:'}</span>
+                            <span className="text-amber-600 dark:text-amber-400">{isDe ? '11,21 % abgezogen' : '11.21% deducted'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-slate-500">{isDe ? 'P50 Nettoertrag:' : 'P50 Net Yield:'}</span>
-                            <span className="font-bold text-emerald-600 dark:text-emerald-400">365.4 GWh/a</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{isDe ? '365,8 GWh/a' : '365.8 GWh/yr'}</span>
                           </div>
                         </div>
                         <p className="text-[11px] text-slate-500 leading-relaxed">
@@ -449,7 +480,7 @@ export const VisualShowcaseSection: React.FC = () => {
                         <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5 font-mono text-[11px]">
                           <div className="flex justify-between">
                             <span className="text-slate-500">{isDe ? 'Turbinenlieferung:' : 'Turbine Supply:'}</span>
-                            <span className="text-slate-800 dark:text-slate-200">Vestas V150 4.2MW</span>
+                            <span className="text-slate-800 dark:text-slate-200">30 × 4 MW (sample)</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-slate-500">{isDe ? 'Gesamt-CapEx:' : 'Total Capex:'}</span>
@@ -477,7 +508,7 @@ export const VisualShowcaseSection: React.FC = () => {
                         <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2 font-mono text-[11px]">
                           <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-bold">
                             <span>Status:</span>
-                            <span>{isDe ? 'BEREIT ZUR ANALYSTEN-FREIGABE' : 'READY FOR SIGN-OFF'}</span>
+                            <span>{isDe ? 'BEISPIEL-FREIGABE' : 'SAMPLE SIGN-OFF'}</span>
                           </div>
                           <div className="text-slate-600 dark:text-slate-400">
                             • {isDe ? 'Extraktions-Konfidenz: 99,4 %' : 'Extraction Confidence: 99.4%'}
@@ -491,8 +522,8 @@ export const VisualShowcaseSection: React.FC = () => {
                         </div>
                         <p className="text-[11px] text-slate-500 leading-relaxed">
                           {isDe
-                            ? 'Verhindert KI-Halluzinationen im Finanzmodell. Jede Zahl erfordert menschliche Bestätigung.'
-                            : 'Ensures no AI hallucinations enter the financial model. Every number requires human confirmation.'}
+                            ? 'Veranschaulicht den geplanten Prüfschritt. Quellenauszüge und Freigabedaten sind fiktiv.'
+                            : 'Illustrates the proposed review step. Source snippets and sign-off details here are fictional.'}
                         </p>
                       </div>
                     )}
@@ -509,11 +540,11 @@ export const VisualShowcaseSection: React.FC = () => {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-slate-500">{isDe ? 'P50 Basis-IRR:' : 'P50 Base IRR:'}</span>
-                            <span className="font-bold text-emerald-600 dark:text-emerald-400">9.82%</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">9.8%</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-slate-500">{isDe ? 'P90 Downside-IRR:' : 'P90 Downside IRR:'}</span>
-                            <span className="font-bold text-amber-600 dark:text-amber-400">7.41%</span>
+                            <span className="font-bold text-amber-600 dark:text-amber-400">7.4%</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-slate-500">{isDe ? 'Mindest-DSCR:' : 'Min DSCR:'}</span>
@@ -571,6 +602,7 @@ export const VisualShowcaseSection: React.FC = () => {
                 transition={{ duration: 0.35 }}
                 className="p-6 sm:p-8"
               >
+                <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">{isDe ? 'Separates 120-MW-Beispiel. Vereinfachte Demo mit konstantem Strompreis; nicht mit dem 48-MW-Arbeitsbereich verbunden.' : 'Separate 120 MW example. Simplified demo with a constant power price; independent of the 48 MW workspace.'}</p>
                 {/* Header Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-6 border-b border-slate-200 dark:border-slate-800 text-xs font-mono">
                   <div className="flex items-center gap-2">
@@ -583,6 +615,7 @@ export const VisualShowcaseSection: React.FC = () => {
                   {/* Asset selector buttons */}
                   <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-lg border border-slate-200 dark:border-slate-800">
                     <button
+                      aria-pressed={assetType === 'wind'}
                       onClick={() => setAssetType('wind')}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition-colors cursor-pointer ${
                         assetType === 'wind'
@@ -594,6 +627,7 @@ export const VisualShowcaseSection: React.FC = () => {
                       <span>{isDe ? 'Windenergie' : 'Wind'}</span>
                     </button>
                     <button
+                      aria-pressed={assetType === 'solar'}
                       onClick={() => setAssetType('solar')}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition-colors cursor-pointer ${
                         assetType === 'solar'
@@ -632,6 +666,7 @@ export const VisualShowcaseSection: React.FC = () => {
                         min="5.5"
                         max="11.0"
                         step="0.1"
+                        aria-label={assetType === 'wind' ? (isDe ? 'Windgeschwindigkeit' : 'Wind speed') : (isDe ? 'Sonneneinstrahlung' : 'Solar irradiance')}
                         value={windSpeed}
                         onChange={(e) => setWindSpeed(parseFloat(e.target.value))}
                         className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
@@ -657,6 +692,7 @@ export const VisualShowcaseSection: React.FC = () => {
                         min="40"
                         max="110"
                         step="1"
+                        aria-label={isDe ? 'PPA-Preis' : 'PPA price'}
                         value={ppaPrice}
                         onChange={(e) => setPpaPrice(parseFloat(e.target.value))}
                         className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-600"
@@ -682,6 +718,7 @@ export const VisualShowcaseSection: React.FC = () => {
                         min="0.5"
                         max="12.0"
                         step="0.5"
+                        aria-label={isDe ? 'Abregelung' : 'Curtailment'}
                         value={curtailment}
                         onChange={(e) => setCurtailment(parseFloat(e.target.value))}
                         className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-600"
@@ -704,10 +741,10 @@ export const VisualShowcaseSection: React.FC = () => {
                         </span>
                         <div className="flex items-center gap-3 font-mono text-xs">
                           <span className="text-blue-600 dark:text-sky-400 font-bold">
-                            ⚡ {netGenGWh.toFixed(1)} GWh/{isDe ? 'a' : 'yr'}
+                            ⚡ {fmt(netGenGWh, 1)} GWh/{isDe ? 'a' : 'yr'}
                           </span>
                           <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                            💰 {isDe ? `${annualRevenueM.toFixed(2)} Mio. €` : `€${annualRevenueM.toFixed(2)}M`}/{isDe ? 'a' : 'yr'}
+                            💰 {isDe ? `${fmt(annualRevenueM, 2)} Mio. €` : `€${fmt(annualRevenueM, 2)}M`}/{isDe ? 'a' : 'yr'}
                           </span>
                         </div>
                       </div>
@@ -715,8 +752,8 @@ export const VisualShowcaseSection: React.FC = () => {
                       {/* Power & Revenue Visualizer Bars */}
                       <div className="grid grid-cols-12 gap-1.5 h-36 items-end pt-5 pb-1">
                         {[0.65, 0.78, 0.92, 1.12, 1.28, 1.18, 0.88, 0.72, 0.82, 1.08, 1.22, 0.98].map((factor, i) => {
-                          const monthRevM = (annualRevenueM / 12) * factor;
-                          const monthGenGWh = (netGenGWh / 12) * factor;
+                          const monthRevM = annualRevenueM * factor / 11.63;
+                          const monthGenGWh = netGenGWh * factor / 11.63;
                           // Smooth proportional scaling without ceiling clipping
                           const heightPct = Math.min(88, Math.max(16, (monthRevM / 3.4) * 65));
 
@@ -751,13 +788,13 @@ export const VisualShowcaseSection: React.FC = () => {
                     </div>
 
                     {/* Output KPI Cards */}
-                    <div className="grid grid-cols-3 gap-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                       <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
                         <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-mono">
                           {isDe ? 'Jahreserlöse' : 'Annual Revenue'}
                         </span>
                         <div className="text-lg sm:text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-1">
-                          {isDe ? `${annualRevenueM.toFixed(2)} Mio. €` : `€${annualRevenueM.toFixed(2)}M`}
+                          {isDe ? `${fmt(annualRevenueM, 2)} Mio. €` : `€${fmt(annualRevenueM, 2)}M`}
                         </div>
                         <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
                           {isDe ? 'Kontrahiertes PPA' : 'Contracted PPA'}
@@ -769,7 +806,7 @@ export const VisualShowcaseSection: React.FC = () => {
                           {isDe ? 'Projekt-Eigenkapital-IRR' : 'Project Equity IRR'}
                         </span>
                         <div className="text-lg sm:text-2xl font-extrabold font-mono text-blue-700 dark:text-sky-400 mt-1">
-                          {calculatedIRR.toFixed(2)}%
+                          {fmt(calculatedIRR, 2)}%
                         </div>
                         <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                           {isDe ? 'P50 Basisfall' : 'P50 Base Case'}
@@ -781,10 +818,10 @@ export const VisualShowcaseSection: React.FC = () => {
                           {isDe ? 'Mindest-DSCR' : 'Min Debt DSCR'}
                         </span>
                         <div className="text-lg sm:text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-1">
-                          {calculatedDSCR}x
+                          {fmt(calculatedDSCR, 2)}x
                         </div>
                         <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
-                          {isDe ? 'Bankfähig > 1,20x' : 'Bankable > 1.20x'}
+                          {isDe ? 'Beispielschwelle: 1,20x' : 'Illustrative threshold: 1.20x'}
                         </span>
                       </div>
                     </div>
@@ -797,154 +834,8 @@ export const VisualShowcaseSection: React.FC = () => {
             {/* MODE 3: DOCUMENT-TO-EXCEL SCANNER */}
             {/* ========================================================================= */}
             {activeMode === 'scanner' && (
-              <motion.div
-                key="scanner"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.35 }}
-                className="p-6 sm:p-8"
-              >
-                {/* Header bar */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pb-6 border-b border-slate-200 dark:border-slate-800 text-xs font-mono">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse" />
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      {isDe ? 'INTERAKTIVER LASER-SCANNER & ANALYSE-LINSE' : 'INTERACTIVE LASER SCANNER & LENS'}
-                    </span>
-                    <span className="text-slate-400">· {isDe ? 'Ziehen Sie den Regler oder beobachten Sie die Extraktion' : 'Drag or observe laser extraction'}</span>
-                  </div>
-                  <button
-                    onClick={() => setIsAutoScanning(!isAutoScanning)}
-                    className="px-3 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                  >
-                    {isAutoScanning
-                      ? (isDe ? 'Auto-Scan pausieren' : 'Pause Auto-Scan')
-                      : (isDe ? 'Auto-Scan fortsetzen' : 'Resume Auto-Scan')}
-                  </button>
-                </div>
-
-                {/* Laser Split Screen Stage */}
-                <div className="relative mt-6 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50 dark:bg-slate-950 h-[380px] select-none">
-                  {/* Left Side: Raw Messy PDF View */}
-                  <div className="absolute inset-0 p-6 flex flex-col justify-between opacity-80">
-                    <div className="space-y-3 font-mono text-xs text-slate-400 dark:text-slate-500">
-                      <div className="flex items-center gap-2 text-red-500 font-bold text-sm">
-                        <FileText className="w-4 h-4" />
-                        <span>{isDe ? 'ROHER TRANSAKTIONSVERTRAG (PPA_Agreement_Signed_Final_v4_draft.pdf)' : 'RAW TRANSACTION CONTRACT (PPA_Agreement_Signed_Final_v4_draft.pdf)'}</span>
-                      </div>
-                      <p className="line-through text-slate-400">
-                        Section 14.3: The Buyer covenants to purchase the electrical output generated by the Seller's Facility at the Base Price of €68.00 per Megawatt-hour (MWh), subject to annual compounding escalation of 1.5% beginning on the Commercial Operation Date (COD)...
-                      </p>
-                      <p className="text-slate-400">
-                        Section 14.4 (Curtailment Indemnity): In the event of system grid constraints instructed by the Transmission System Operator (TSO) exceeding 2.0% of nominal P50 output, the Buyer shall compensate the Seller for deemed generated energy calculated in accordance with Schedule C...
-                      </p>
-                      <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-[11px]">
-                        {isDe
-                          ? '⚠️ Unstrukturierter Text, komplexe Vertragssprache, manuelles Übertragungsrisiko über 380 Seiten.'
-                          : '⚠️ Unstructured text, complex legal syntax, manual copy-paste risk across 380 pages.'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Side: Clean Structured Excel DCF View (revealed by laser position) */}
-                  <div
-                    className={`absolute inset-0 bg-white dark:bg-[#071322] border-l-2 border-sky-400 overflow-hidden ${
-                      isAutoScanning ? 'animate-scan-sweep' : ''
-                    }`}
-                    style={
-                      !isAutoScanning
-                        ? {
-                            clipPath: `polygon(${scanPos}% 0, 100% 0, 100% 100%, ${scanPos}% 100%)`,
-                          }
-                        : undefined
-                    }
-                  >
-                    <div className="p-6 h-full flex flex-col justify-between">
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs sm:text-sm font-mono">
-                            <FileSpreadsheet className="w-4.5 h-4.5" />
-                            <span>{isDe ? 'VALFENCE GEPRÜFTES DCF-MODELL (\'Revenue_Engine\'!A1:F20)' : 'VALFENCE AUDITED DCF MODEL (\'Revenue_Engine\'!A1:F20)'}</span>
-                          </div>
-                          <span className="text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">
-                            {isDe ? '100 % Geprüft' : '100% Verified'}
-                          </span>
-                        </div>
-
-                        {/* Excel Table simulation */}
-                        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 font-mono text-xs">
-                          <table className="w-full text-left">
-                            <thead className="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-                              <tr>
-                                <th className="p-2 text-slate-500 font-bold">{isDe ? 'Zelle' : 'Cell'}</th>
-                                <th className="p-2 text-slate-500 font-bold">{isDe ? 'Parameter' : 'Parameter'}</th>
-                                <th className="p-2 text-slate-500 font-bold">{isDe ? 'Wert' : 'Value'}</th>
-                                <th className="p-2 text-slate-500 font-bold">{isDe ? 'Excel-Formel' : 'Excel Formula'}</th>
-                                <th className="p-2 text-slate-500 font-bold">{isDe ? 'Prüfquelle' : 'Audit Source'}</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
-                              <tr className="hover:bg-blue-50/50 dark:hover:bg-blue-950/40">
-                                <td className="p-2 text-blue-600 dark:text-sky-400 font-bold">B12</td>
-                                <td className="p-2 text-slate-800 dark:text-slate-200">{isDe ? 'PPA-Basispreis' : 'Base PPA Price'}</td>
-                                <td className="p-2 font-bold text-slate-900 dark:text-white">€68.00/MWh</td>
-                                <td className="p-2 text-emerald-600 dark:text-emerald-400 font-semibold">=Assumptions!C12</td>
-                                <td className="p-2 text-slate-500">PPA Doc p. 14 §14.3</td>
-                              </tr>
-                              <tr className="hover:bg-blue-50/50 dark:hover:bg-blue-950/40">
-                                <td className="p-2 text-blue-600 dark:text-sky-400 font-bold">B13</td>
-                                <td className="p-2 text-slate-800 dark:text-slate-200">{isDe ? 'Preissteigerungsrate' : 'Escalation Rate'}</td>
-                                <td className="p-2 font-bold text-slate-900 dark:text-white">1.50% / {isDe ? 'a' : 'yr'}</td>
-                                <td className="p-2 text-emerald-600 dark:text-emerald-400 font-semibold">=Assumptions!C13</td>
-                                <td className="p-2 text-slate-500">PPA Doc p. 14 §14.3</td>
-                              </tr>
-                              <tr className="hover:bg-blue-50/50 dark:hover:bg-blue-950/40">
-                                <td className="p-2 text-blue-600 dark:text-sky-400 font-bold">C14</td>
-                                <td className="p-2 text-slate-800 dark:text-slate-200">{isDe ? 'Abregelungs-Entschädigung' : 'Curtailment Indemnity'}</td>
-                                <td className="p-2 font-bold text-slate-900 dark:text-white">&gt; 2.0% Deemed</td>
-                                <td className="p-2 text-emerald-600 dark:text-emerald-400 font-semibold">=IF(Loss&gt;2%,...)</td>
-                                <td className="p-2 text-slate-500">PPA Doc p. 15 §14.4</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-800">
-                        <span>{isDe ? 'Deterministisches Python-Parsing + strenger Analysten-Freigabeprozess' : 'Deterministic Python parsing + strict analyst sign-off checkpoint'}</span>
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold font-mono">
-                          {isDe ? 'Keine manuellen Tippfehler ✓' : 'Zero Manual Keying Error ✓'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Glowing Laser Vertical Line Indicator */}
-                  <div
-                    className={`absolute top-0 bottom-0 w-1 bg-sky-400 shadow-[0_0_15px_rgba(56,189,248,1)] pointer-events-none ${
-                      isAutoScanning ? 'animate-laser-sweep' : ''
-                    }`}
-                    style={!isAutoScanning ? { left: `${scanPos}%` } : undefined}
-                  >
-                    <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 px-2 py-1 rounded bg-sky-500 text-white font-mono text-[9px] font-bold uppercase tracking-widest whitespace-nowrap shadow-lg">
-                      {isDe ? 'KI-Diligence-Linse' : 'AI Diligence Lens'} {!isAutoScanning && `(${scanPos.toFixed(0)}%)`}
-                    </div>
-                  </div>
-
-                  {/* Drag overlay slider control */}
-                  <input
-                    type="range"
-                    min="5"
-                    max="95"
-                    value={scanPos}
-                    onChange={(e) => {
-                      setIsAutoScanning(false);
-                      setScanPos(parseFloat(e.target.value));
-                    }}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20"
-                  />
-                </div>
+              <motion.div key="scanner" initial={{opacity: 0}} animate={{opacity: 1}} exit={{opacity: 0}} transition={{duration: 0.15}}>
+                <DocumentScanner />
               </motion.div>
             )}
           </AnimatePresence>

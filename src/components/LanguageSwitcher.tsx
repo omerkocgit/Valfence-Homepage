@@ -20,14 +20,12 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
 
   return (
     <div
-      id="header-language-switcher"
       className={`inline-flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold ${className}`}
       role="group"
       aria-label="Language selection"
     >
       <button
         type="button"
-        id="lang-btn-en"
         onClick={() => setLanguage('EN')}
         className={`px-2 py-1 rounded-md transition-all font-mono font-bold cursor-pointer ${
           language === 'EN'
@@ -42,7 +40,6 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
       <span className="text-slate-300 dark:text-slate-700 select-none px-0.5">|</span>
       <button
         type="button"
-        id="lang-btn-de"
         onClick={() => setLanguage('DE')}
         className={`px-2 py-1 rounded-md transition-all font-mono font-bold cursor-pointer ${
           language === 'DE'

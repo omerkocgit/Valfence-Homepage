@@ -25,7 +25,7 @@ export const Footer: React.FC<FooterProps> = ({
     trackEvent('footer_nav_click', { section: label });
     const el = document.getElementById(id);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
+      el.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
     }
   };
 

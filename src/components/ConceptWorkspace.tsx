@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { trackEvent } from '../services/clarity';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useDemo } from '../data/DemoContext';
 
 interface ConceptWorkspaceProps {
   onOpenModal: (modal: ModalType) => void;
@@ -44,13 +45,20 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
   const { t, language } = useLanguage();
   const isDe = language === 'DE';
 
-  const [assumptions, setAssumptions] = useState<ValuationAssumption[]>(INITIAL_ASSUMPTIONS);
+  const {assumptions, setAssumptions, scenarioMode, setScenarioMode, result, approvedCount} = useDemo();
+  const number = (value: number, digits = 1) => value.toLocaleString(isDe ? 'de-DE' : 'en-GB', {minimumFractionDigits: digits, maximumFractionDigits: digits});
   const [selectedId, setSelectedId] = useState<string>('ncf_p50');
-  const [scenarioMode, setScenarioMode] = useState<'p50' | 'p90'>('p50');
   const [activeTab, setActiveTab] = useState<'assumptions' | 'conflict-resolver' | 'dcf-waterfall' | 'missing-inputs' | 'benchmarks'>('assumptions');
 
   // Interactive Conflict Resolver state
-  const [resolvedConflictSource, setResolvedConflictSource] = useState<'contract' | 'advisor'>('contract');
+  const priceValue = assumptions.find(a => a.id === 'merchant_power_price')!.currentValue;
+  const resolvedConflictSource = priceValue === 72 ? 'contract' : priceValue === 68.5 ? 'advisor' : 'custom';
+  const selectPriceSource = (source: 'contract' | 'advisor') => {
+    setAssumptions(previous => previous.map(a => a.id === 'merchant_power_price'
+      ? {...a, currentValue: source === 'contract' ? 72 : 68.5, status: 'pending'}
+      : a));
+    trackEvent('demo_source_selected', {source});
+  };
 
   const currentAssumption =
     assumptions.find((a) => a.id === selectedId) || assumptions[0];
@@ -77,7 +85,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
         valuationImpactHigh: '+1,4 % Equity-IRR (2,1 Mio. € NPV)',
       },
       merchant_power_price: {
-        name: 'Durchschnittlicher Capture-Preis (J1-J10)',
+        name: 'Durchschnittlicher Demo-Strompreis',
         category: 'Erlöse & Vermarktung',
         documentName: 'Pexapark Strompreisbericht & PPA-Term-Sheet',
         documentType: 'PPA-Vertrag',
@@ -125,21 +133,12 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
 
   const localizedCurrent = useMemo(() => getLocalizedAssumption(currentAssumption), [currentAssumption, isDe]);
 
-  // Calculate deterministic results dynamically (memoized to avoid unneeded CPU load)
-  const baseDcf: DCFCalculationResult = useMemo(
-    () => calculateDeterministicDCF(48.0, assumptions),
-    [assumptions]
-  );
+  const activeIrr = result.equityIRR;
+  const activeEv = result.enterpriseValue;
+  const activeDscr = result.dscrMin;
+  const baselineResult = useMemo(() => calculateDeterministicDCF(48, INITIAL_ASSUMPTIONS, scenarioMode), [scenarioMode]);
+  const irrDelta = activeIrr - baselineResult.equityIRR;
 
-  // If P90 scenario is active, adjust displayed metrics
-  const activeIrr = scenarioMode === 'p50' ? baseDcf.equityIRR : baseDcf.p90EquityIRR;
-  const activeEv = scenarioMode === 'p50' ? baseDcf.enterpriseValue : Number((baseDcf.enterpriseValue * 0.91).toFixed(1));
-  const activeDscr = scenarioMode === 'p50' ? baseDcf.dscrMin : Number((baseDcf.dscrMin * 0.88).toFixed(2));
-
-  const approvedCount = useMemo(
-    () => assumptions.filter((a) => a.status === 'approved' || a.status === 'overridden').length,
-    [assumptions]
-  );
   const isAllReviewed = approvedCount === assumptions.length;
 
   const handleValueChange = (newValue: number) => {
@@ -149,7 +148,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
           ? {
               ...item,
               currentValue: Number(newValue.toFixed(2)),
-              status: newValue === item.originalValue ? item.status : 'overridden',
+              status: 'pending',
             }
           : item
       )
@@ -193,6 +192,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
           </h2>
           <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300">
             {t.workspace.subline}
+            <span className="block mt-2 text-xs text-slate-500 dark:text-slate-400">{isDe ? 'Fiktives 48-MW-Beispiel · Vereinfachte Berechnungen · Keine Dokumentenverarbeitung' : 'Fictional 48 MW example · Simplified calculations · No document processing'}</span>
           </p>
         </div>
 
@@ -215,10 +215,11 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
             </div>
 
             {/* Top Scenario & Governance Controls */}
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
               {/* Scenario Toggle */}
               <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold">
                 <button
+                  aria-pressed={scenarioMode === 'p50'}
                   onClick={() => {
                     setScenarioMode('p50');
                     trackEvent('scenario_switch', { mode: 'p50' });
@@ -232,6 +233,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                   {t.workspace.p50Btn}
                 </button>
                 <button
+                  aria-pressed={scenarioMode === 'p90'}
                   onClick={() => {
                     setScenarioMode('p90');
                     trackEvent('scenario_switch', { mode: 'p90' });
@@ -271,8 +273,9 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
 
           {/* Subheader / Tabs Bar */}
           <div className="bg-slate-50 dark:bg-slate-900 px-4 sm:px-6 py-2 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 text-xs sm:text-sm">
-            <div className="flex items-center gap-1 overflow-x-auto py-1">
+            <div className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto py-1">
               <button
+                aria-pressed={activeTab === 'assumptions'}
                 onClick={() => setActiveTab('assumptions')}
                 className={`px-3 py-1.5 rounded-md font-semibold transition-colors cursor-pointer shrink-0 ${
                   activeTab === 'assumptions'
@@ -283,6 +286,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                 {t.workspace.tabs.assumptions} ({approvedCount}/{assumptions.length})
               </button>
               <button
+                aria-pressed={activeTab === 'conflict-resolver'}
                 onClick={() => setActiveTab('conflict-resolver')}
                 className={`px-3 py-1.5 rounded-md font-semibold transition-colors cursor-pointer shrink-0 inline-flex items-center gap-1.5 ${
                   activeTab === 'conflict-resolver'
@@ -294,6 +298,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                 <span>{t.workspace.tabs.conflictResolver}</span>
               </button>
               <button
+                aria-pressed={activeTab === 'dcf-waterfall'}
                 onClick={() => setActiveTab('dcf-waterfall')}
                 className={`px-3 py-1.5 rounded-md font-semibold transition-colors cursor-pointer shrink-0 ${
                   activeTab === 'dcf-waterfall'
@@ -304,6 +309,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                 {t.workspace.tabs.dcfWaterfall}
               </button>
               <button
+                aria-pressed={activeTab === 'missing-inputs'}
                 onClick={() => setActiveTab('missing-inputs')}
                 className={`px-3 py-1.5 rounded-md font-semibold transition-colors cursor-pointer shrink-0 inline-flex items-center gap-1 ${
                   activeTab === 'missing-inputs'
@@ -317,6 +323,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                 </span>
               </button>
               <button
+                aria-pressed={activeTab === 'benchmarks'}
                 onClick={() => setActiveTab('benchmarks')}
                 className={`px-3 py-1.5 rounded-md font-semibold transition-colors cursor-pointer shrink-0 inline-flex items-center gap-1.5 ${
                   activeTab === 'benchmarks'
@@ -336,14 +343,14 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>{t.workspace.exportExcelBtn}</span>
+                <span>{isDe ? 'Modellvorschau' : 'Model preview'}</span>
               </button>
               <button
                 onClick={() => onOpenModal('case-summary')}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
               >
                 <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-sky-400" />
-                <span>{t.workspace.generateMemoBtn}</span>
+                <span>{isDe ? 'Memo-Vorschau' : 'Memo preview'}</span>
               </button>
             </div>
           </div>
@@ -398,12 +405,12 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                         {locItem.name}
                       </span>
                       <span className="font-mono text-sm font-bold text-slate-900 dark:text-white">
-                        {item.currentValue} {item.unit}
+                        {number(item.currentValue)} {item.unit}
                       </span>
                     </div>
 
                     <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                      <span>{isDe ? 'Bandbreite' : 'Range'}: {item.minRange} - {item.maxRange} {item.unit}</span>
+                      <span>{isDe ? 'Bandbreite' : 'Range'}: {number(item.minRange)} - {number(item.maxRange)} {item.unit}</span>
                       <span className="text-slate-400 dark:text-slate-500">{item.primarySource.pages}</span>
                     </div>
                   </button>
@@ -412,10 +419,10 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
 
               {/* Dynamic Live Metric Tile */}
               <div className="p-3.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs space-y-1.5">
-                <div className="flex items-center justify-between text-slate-600 dark:text-slate-400 font-semibold">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-slate-600 dark:text-slate-400 font-semibold">
                   <span>{isDe ? `Aktuelle ${scenarioMode.toUpperCase()}-Bewertung:` : `Current ${scenarioMode.toUpperCase()} Valuation:`}</span>
                   <span className="font-mono text-blue-600 dark:text-sky-400 font-bold">
-                    {activeIrr}% IRR (€{activeEv}M EV)
+                    {number(activeIrr)}% IRR (€{number(activeEv)}M EV)
                   </span>
                 </div>
                 <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
@@ -465,7 +472,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                       <span className="text-xs text-slate-500 dark:text-slate-400">
                         {isDe ? 'Empfohlene Bandbreite:' : 'Suggested Range:'}{' '}
                         <span className="font-mono text-blue-600 dark:text-sky-400 font-bold">
-                          {currentAssumption.minRange} – {currentAssumption.maxRange} {currentAssumption.unit}
+                          {number(currentAssumption.minRange)} – {number(currentAssumption.maxRange)} {currentAssumption.unit}
                         </span>
                       </span>
                     </div>
@@ -474,6 +481,8 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                       <div className="sm:col-span-8 space-y-1">
                         <input
                           id="assumption-slider"
+                          aria-label={localizedCurrent.name}
+                          aria-valuetext={`${number(currentAssumption.currentValue)} ${currentAssumption.unit}`}
                           type="range"
                           min={currentAssumption.minRange}
                           max={currentAssumption.maxRange}
@@ -483,18 +492,18 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                           className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
                         />
                         <div className="flex justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                          <span>Min: {currentAssumption.minRange} {currentAssumption.unit}</span>
+                          <span>Min: {number(currentAssumption.minRange)} {currentAssumption.unit}</span>
                           <span className="text-blue-600 dark:text-sky-400 font-bold">
-                            {isDe ? 'Basis:' : 'Base:'} {currentAssumption.originalValue} {currentAssumption.unit}
+                            {isDe ? 'Basis:' : 'Base:'} {number(currentAssumption.originalValue)} {currentAssumption.unit}
                           </span>
-                          <span>Max: {currentAssumption.maxRange} {currentAssumption.unit}</span>
+                          <span>Max: {number(currentAssumption.maxRange)} {currentAssumption.unit}</span>
                         </div>
                       </div>
 
                       <div className="sm:col-span-4 flex items-center justify-end gap-2">
                         <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1.5 rounded-lg text-right w-full font-mono">
                           <span className="text-lg font-extrabold text-slate-900 dark:text-white">
-                            {currentAssumption.currentValue}
+                            {number(currentAssumption.currentValue)}
                           </span>
                           <span className="text-xs text-slate-500 dark:text-slate-400 ml-1">
                             {currentAssumption.unit}
@@ -515,7 +524,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                     <div className="flex flex-wrap items-center justify-between text-xs pt-2 border-t border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
                       <span>{isDe ? 'Bewertungssensitivität:' : 'Valuation Sensitivity:'}</span>
                       <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
-                        {localizedCurrent.valuationImpactHigh}
+                        {irrDelta >= 0 ? '+' : ''}{number(irrDelta, 2)} {isDe ? 'Prozentpunkte IRR ggü. Startwert' : 'pp IRR vs. initial demo'}
                       </span>
                     </div>
                   </div>
@@ -589,7 +598,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                         {isDe ? 'Datenraum-Konflikt erkannt' : 'Data Room Conflict Detected'}
                       </span>
                       <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
-                        {isDe ? 'PPA-Mindestpreis vs. Berater-Ertragskurve' : 'PPA Floor Price vs. Technical Advisor Curve'}
+                        {isDe ? 'Zwei illustrative Preisannahmen' : 'Two illustrative price assumptions'}
                       </h3>
                     </div>
                     <span className="text-xs bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-2.5 py-1 rounded font-mono font-bold border border-amber-300 dark:border-amber-800">
@@ -599,16 +608,17 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
 
                   <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                     {isDe
-                      ? 'Zwei Quellen im Datenraum weisen abweichende Werte auf. Wählen Sie die zu übernehmende Datenquelle oder definieren Sie eine Anpassung:'
-                      : 'Two data room sources present divergent figures. Choose which source to adopt or specify a blended analyst override:'}
+                      ? 'Wählen Sie einen Beispielpreis für die gesamte Demo-Cashflow-Reihe. PPA- und Merchant-Perioden werden hier nicht getrennt modelliert.'
+                      : 'Choose a sample price to apply to the entire demo cash-flow series. This simplified comparison does not model separate PPA and merchant periods.'}
                   </p>
 
                   {/* Conflict Choice Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     {/* Source A */}
-                    <div
-                      onClick={() => setResolvedConflictSource('contract')}
-                      className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                    <button type="button"
+                      onClick={() => selectPriceSource('contract')}
+                      aria-pressed={resolvedConflictSource === 'contract'}
+                      className={`text-left p-4 rounded-xl border cursor-pointer transition-all ${
                         resolvedConflictSource === 'contract'
                           ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-600 dark:border-blue-500 ring-2 ring-blue-500/30'
                           : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -629,13 +639,14 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                       </p>
                       <div className="text-[11px] text-slate-500 flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
                         <span>Doc: Contract_PPA_v4.pdf</span>
-                        <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">10.3% IRR</span>
+                        <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">{number(calculateDeterministicDCF(48, assumptions.map(a => a.id === 'merchant_power_price' ? {...a, currentValue: 72} : a), scenarioMode).equityIRR)}% IRR</span>
                       </div>
-                    </div>
+                    </button>
 
                     {/* Source B */}
-                    <div
-                      onClick={() => setResolvedConflictSource('advisor')}
+                    <button type="button"
+                      onClick={() => selectPriceSource('advisor')}
+                      aria-pressed={resolvedConflictSource === 'advisor'}
                       className={`p-4 rounded-xl border cursor-pointer transition-all ${
                         resolvedConflictSource === 'advisor'
                           ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-600 dark:border-blue-500 ring-2 ring-blue-500/30'
@@ -657,22 +668,22 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                       </p>
                       <div className="text-[11px] text-slate-500 flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
                         <span>Doc: Market_Report_Q2.pdf</span>
-                        <span className="font-mono text-amber-600 dark:text-amber-400 font-semibold">9.8% IRR</span>
+                        <span className="font-mono text-amber-600 dark:text-amber-400 font-semibold">{number(calculateDeterministicDCF(48, assumptions.map(a => a.id === 'merchant_power_price' ? {...a, currentValue: 68.5} : a), scenarioMode).equityIRR)}% IRR</span>
                       </div>
-                    </div>
+                    </button>
                   </div>
 
                   <div className="p-3 bg-white dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
                     <span className="text-slate-600 dark:text-slate-400">
                       {isDe ? 'Ausgewählter Basisfall: ' : 'Selected Base Case: '}
                       <strong className="text-slate-900 dark:text-white">
-                        {resolvedConflictSource === 'contract'
+                        {resolvedConflictSource === 'custom' ? (isDe ? `Angepasst (€${number(priceValue)}/MWh)` : `Custom (€${number(priceValue)}/MWh)`) : resolvedConflictSource === 'contract'
                           ? (isDe ? 'Gezeichnetes Term Sheet (72,0 €/MWh)' : 'Executed Term Sheet (€72.0/MWh)')
                           : (isDe ? 'Pexapark Berater (68,5 €/MWh)' : 'Pexapark Advisor (€68.5/MWh)')}
                       </strong>
                     </span>
                     <span className="font-mono text-blue-600 dark:text-sky-400 font-semibold">
-                      {isDe ? 'Prüfvermerk protokolliert ✓' : 'Audit Note Logged ✓'}
+                      {isDe ? 'In Demo übernommen' : 'Applied to demo'}
                     </span>
                   </div>
                 </div>
@@ -683,7 +694,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                   <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                     <div>
                       <span className="text-xs font-mono uppercase text-blue-600 dark:text-sky-400 tracking-wider font-semibold">
-                        {isDe ? `Deterministische Berechnung (${scenarioMode.toUpperCase()})` : `Deterministic Calculation Outputs (${scenarioMode.toUpperCase()})`}
+                        {isDe ? `Vereinfachte Demo (${scenarioMode.toUpperCase()})` : `Simplified demo (${scenarioMode.toUpperCase()})`}
                       </span>
                       <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
                         {isDe ? '25-Jahre Cashflow-Wasserfall des Projekts' : '25-Year Asset Cash Flow Waterfall'}
@@ -695,11 +706,11 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                   </div>
 
                   {/* Top Key Metrics Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="grid grid-cols-1 min-[400px]:grid-cols-2 xl:grid-cols-4 gap-2.5">
                     <div className="bg-white dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
                       <span className="text-xs text-slate-500 dark:text-slate-400">Equity IRR</span>
                       <div className="text-xl font-mono font-extrabold text-blue-600 dark:text-sky-400 mt-0.5">
-                        {activeIrr}%
+                        {number(activeIrr)}%
                       </div>
                       <span className="text-[10px] text-slate-400">{isDe ? 'Ziel-Hurdle: 8,5 %' : 'Target hurdle: 8.5%'}</span>
                     </div>
@@ -707,7 +718,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                     <div className="bg-white dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
                       <span className="text-xs text-slate-500 dark:text-slate-400">{isDe ? 'Unternehmenswert (EV)' : 'Enterprise Value'}</span>
                       <div className="text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                        €{activeEv}M
+                        €{number(activeEv)}M
                       </div>
                       <span className="text-[10px] text-slate-400">{isDe ? 'Ungehebelter DCF' : 'Ungeared DCF'}</span>
                     </div>
@@ -715,7 +726,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                     <div className="bg-white dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
                       <span className="text-xs text-slate-500 dark:text-slate-400">{isDe ? 'Mindest-DSCR' : 'Minimum DSCR'}</span>
                       <div className="text-xl font-mono font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
-                        {activeDscr}x
+                        {number(activeDscr, 2)}x
                       </div>
                       <span className="text-[10px] text-slate-400">{isDe ? 'Covenant: 1,25x' : 'Covenant: 1.25x'}</span>
                     </div>
@@ -723,9 +734,9 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                     <div className="bg-white dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
                       <span className="text-xs text-slate-500 dark:text-slate-400">{isDe ? 'Fremdkapital' : 'Debt Sizing'}</span>
                       <div className="text-xl font-mono font-extrabold text-slate-800 dark:text-slate-200 mt-0.5">
-                        €42.0M
+                        €{number(result.debtPrincipal)}M
                       </div>
-                      <span className="text-[10px] text-slate-400">{isDe ? '70,0 % Gearing' : '70.0% Gearing'}</span>
+                      <span className="text-[10px] text-slate-400">{number(assumptions.find(a => a.id === 'debt_gearing')!.currentValue)}% Gearing</span>
                     </div>
                   </div>
 
@@ -742,13 +753,13 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-900/60">
-                        {baseDcf.annualCashFlows.slice(0, 6).map((row) => (
+                        {result.annualCashFlows.slice(0, 6).map((row) => (
                           <tr key={row.year} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                             <td className="py-1.5 px-3 font-bold text-slate-800 dark:text-slate-300">{isDe ? `Jahr ${row.year}` : `Year ${row.year}`}</td>
-                            <td className="py-1.5 px-3 text-right text-slate-700 dark:text-slate-200">€{row.revenue}M</td>
-                            <td className="py-1.5 px-3 text-right text-slate-500 dark:text-slate-400">(€{row.opex}M)</td>
-                            <td className="py-1.5 px-3 text-right text-amber-600 dark:text-amber-400">(€{row.debtService}M)</td>
-                            <td className="py-1.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">€{row.fcfE}M</td>
+                            <td className="py-1.5 px-3 text-right text-slate-700 dark:text-slate-200">€{number(row.revenue, 2)}M</td>
+                            <td className="py-1.5 px-3 text-right text-slate-500 dark:text-slate-400">(€{number(row.opex, 2)}M)</td>
+                            <td className="py-1.5 px-3 text-right text-amber-600 dark:text-amber-400">(€{number(row.debtService, 2)}M)</td>
+                            <td className="py-1.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">€{number(row.fcfE, 2)}M</td>
                           </tr>
                         ))}
                       </tbody>
@@ -860,7 +871,7 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
               )}
 
               {activeTab === 'benchmarks' && (
-                <BenchmarkWidget />
+                <BenchmarkWidget assumptions={assumptions} result={result} />
               )}
             </div>
           </div>
@@ -871,8 +882,8 @@ export const ConceptWorkspace: React.FC<ConceptWorkspaceProps> = ({ onOpenModal 
               <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>
                 {isDe
-                  ? 'Alle Eingaben verfügen über lückenlose Dokumenten-Provenienz. Quellenbelege, Anpassungen und DCF-Formeln exportieren sauber nach Excel.'
-                  : 'All inputs carry document-level provenance. Citations, overrides, and DCF formulas export cleanly to Excel.'}
+                  ? 'Interaktive Demonstration mit Beispieldaten. Änderungen gelten nur für diese Sitzung; Excel und Memo sind Vorschauen.'
+                  : 'Interactive demonstration with sample data. Changes last for this session; Excel and memo are previews.'}
               </span>
             </div>
 

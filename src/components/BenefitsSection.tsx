@@ -61,6 +61,7 @@ export const BenefitsSection: React.FC = () => {
           </p>
         </motion.div>
 
+        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{isDe ? 'Illustrative Zielwerte des Konzepts; keine gemessenen Kundenergebnisse.' : 'Illustrative concept targets; not measured customer results.'}</p>
         {/* Animated Counter Stats Ribbon */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}

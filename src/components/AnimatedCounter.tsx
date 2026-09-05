@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useInView } from 'motion/react';
+import { useInView, useReducedMotion } from 'motion/react';
 
 interface AnimatedCounterProps {
   from?: number;
@@ -22,10 +22,13 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
 }) => {
   const ref = React.useRef<HTMLSpanElement>(null);
   const isInView = useInView(ref, { once: true, margin: '-40px' });
+  const reducedMotion = useReducedMotion();
   const [value, setValue] = useState(from);
 
   useEffect(() => {
     if (!isInView) return;
+    if (reducedMotion || duration <= 0) {setValue(to); return;}
+    let frame = 0;
 
     let startTimestamp: number | null = null;
     const step = (timestamp: number) => {
@@ -39,12 +42,13 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
       setValue(current);
 
       if (progress < 1) {
-        window.requestAnimationFrame(step);
+        frame = window.requestAnimationFrame(step);
       }
     };
 
-    window.requestAnimationFrame(step);
-  }, [isInView, from, to, duration]);
+    frame = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frame);
+  }, [isInView, from, to, duration, reducedMotion]);
 
   const formatted = decimals > 0 ? value.toFixed(decimals) : Math.round(value).toString();
 

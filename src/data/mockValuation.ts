@@ -113,107 +113,68 @@ export const INITIAL_ASSUMPTIONS: ValuationAssumption[] = [
 ];
 
 export interface DCFCalculationResult {
-  enterpriseValue: number; // €M
-  equityValue: number; // €M
-  equityIRR: number; // %
-  projectIRR: number; // %
-  p90EquityIRR: number; // %
+  enterpriseValue: number;
+  equityValue: number;
+  equityIRR: number;
+  projectIRR: number;
   dscrMin: number;
+  debtPrincipal: number;
   annualCashFlows: { year: number; revenue: number; opex: number; debtService: number; fcfE: number }[];
 }
 
+/** Annual IRR for this demo's conventional initial outflow and subsequent inflows. */
+export function calculateIRR(cashFlows: number[]): number {
+  const npv = (rate: number) => cashFlows.reduce((sum, cf, year) => sum + cf / (1 + rate) ** year, 0);
+  let low = -0.99;
+  let high = 1;
+  while (npv(high) > 0 && high < 1024) high *= 2;
+  if (npv(low) < 0 || npv(high) > 0) return NaN;
+  for (let iteration = 0; iteration < 150; iteration++) {
+    const mid = (low + high) / 2;
+    if (npv(mid) > 0) low = mid;
+    else high = mid;
+  }
+  return ((low + high) / 2) * 100;
+}
+
 /**
- * Deterministic Financial Calculation Engine
- * Calculates DCF metrics deterministically based on user approved/adjusted assumptions
+ * Illustrative, simplified 25-year demo. Not an underwriting model.
+ * Both scenarios and all displayed metrics use the same cash-flow series.
  */
 export function calculateDeterministicDCF(
-  capacityMW: number = 48.0,
-  assumptions: ValuationAssumption[]
+  capacityMW: number = 48,
+  assumptions: ValuationAssumption[],
+  scenario: 'p50' | 'p90' = 'p50',
 ): DCFCalculationResult {
-  const ncf = assumptions.find((a) => a.id === 'ncf_p50')?.currentValue ?? 34.8;
-  const price = assumptions.find((a) => a.id === 'merchant_power_price')?.currentValue ?? 68.5;
-  const opexPerMW = assumptions.find((a) => a.id === 'fixed_opex')?.currentValue ?? 38.5;
-  const gearingPct = assumptions.find((a) => a.id === 'debt_gearing')?.currentValue ?? 70.0;
-
-  // Total installed capex (~1.25M €/MW)
-  const totalCapex = capacityMW * 1.25; // 60.0 M€
-  const debtPrincipal = totalCapex * (gearingPct / 100); // 42.0 M€
-  const equityInitial = totalCapex - debtPrincipal; // 18.0 M€
-
-  // Annual Generation: MW * 8760 * (NCF / 100) -> MWh
-  const annualGenMWh = capacityMW * 8760 * (ncf / 100); // ~146,334 MWh
-
-  // Annual Revenue: Gen * Price / 1,000,000 -> M€
-  const annualRevenue = (annualGenMWh * price) / 1_000_000; // ~10.02 M€
-
-  // Annual OpEx: capacityMW * opexPerMW / 1,000 -> M€
-  const annualOpEx = (capacityMW * opexPerMW) / 1_000; // ~1.848 M€
-
-  // Annual EBITDA
-  const annualEbitda = annualRevenue - annualOpEx; // ~8.17 M€
-
-  // Annual Debt Service (18-yr annuity @ 4.5% all-in cost)
-  const r = 0.045;
-  const n = 18;
-  const annualDebtService = (debtPrincipal * (r * Math.pow(1 + r, n))) / (Math.pow(1 + r, n) - 1); // ~3.45 M€
-
-  // Minimum DSCR
-  const dscrMin = parseFloat((annualEbitda / Math.max(0.1, annualDebtService)).toFixed(2));
-
-  // Annual Free Cash Flow to Equity (FCFE)
-  const annualFcfe = Math.max(0, annualEbitda - annualDebtService - 0.5); // after tax & reserve
-
-  // 25-year Cash flow series
-  const annualCashFlows = [];
-  for (let yr = 1; yr <= 25; yr++) {
-    // slight degradation 0.4% per yr
-    const degFactor = Math.pow(1 - 0.004, yr - 1);
-    const yrGen = annualGenMWh * degFactor;
-    const yrRev = (yrGen * price) / 1_000_000;
-    const yrOpex = annualOpEx * Math.pow(1.02, yr - 1); // 2% inflation
-    const yrEbitda = yrRev - yrOpex;
-    const yrDebt = yr <= 18 ? annualDebtService : 0;
-    const yrFcfe = Math.max(0, yrEbitda - yrDebt - 0.4);
-
-    annualCashFlows.push({
-      year: yr,
-      revenue: parseFloat(yrRev.toFixed(2)),
-      opex: parseFloat(yrOpex.toFixed(2)),
-      debtService: parseFloat(yrDebt.toFixed(2)),
-      fcfE: parseFloat(yrFcfe.toFixed(2)),
-    });
-  }
-
-  // Calculate NPV (Discount rate = 6.5% for project, 8.0% for equity)
-  const wacc = 0.065;
-  const ke = 0.082;
-
-  let equityNPV = -equityInitial;
-  let projectNPV = -totalCapex;
-
-  for (let t = 1; t <= 25; t++) {
-    const cf = annualCashFlows[t - 1];
-    equityNPV += cf.fcfE / Math.pow(1 + ke, t);
-    projectNPV += (cf.revenue - cf.opex) / Math.pow(1 + wacc, t);
-  }
-
-  // Approximate IRRs
-  const approxProjectIRR = 7.4 + (ncf - 34.8) * 0.35 + (price - 68.5) * 0.12 - (opexPerMW - 38.5) * 0.08;
-  const approxEquityIRR =
-    9.8 +
-    (ncf - 34.8) * 0.65 +
-    (price - 68.5) * 0.22 -
-    (opexPerMW - 38.5) * 0.14 +
-    (gearingPct - 70.0) * 0.11;
-  const approxP90EquityIRR = approxEquityIRR - 2.4;
-
+  const value = (id: string, fallback: number) => assumptions.find(a => a.id === id)?.currentValue ?? fallback;
+  const ncf = value('ncf_p50', 34.8);
+  const price = value('merchant_power_price', 68.5);
+  const opex = value('fixed_opex', 38.5);
+  const gearing = value('debt_gearing', 70);
+  const totalCapex = capacityMW * 1.25;
+  const debtPrincipal = totalCapex * gearing / 100;
+  const equityInitial = totalCapex - debtPrincipal;
+  const rate = 0.045;
+  const debtService = debtPrincipal * rate / (1 - (1 + rate) ** -18);
+  const generation = capacityMW * 8760 * ncf / 100 * (scenario === 'p90' ? 0.888 : 1);
+  const annualCashFlows = Array.from({length: 25}, (_, index) => {
+    const year = index + 1;
+    const revenue = generation * 0.996 ** index * price / 1e6;
+    const annualOpex = capacityMW * opex / 1000 * 1.02 ** index;
+    const debt = year <= 18 ? debtService : 0;
+    // A fixed illustrative reserve; negative flows remain visible.
+    return {year, revenue, opex: annualOpex, debtService: debt, fcfE: revenue - annualOpex - debt - 0.4};
+  });
+  const projectFlows = annualCashFlows.map(cf => cf.revenue - cf.opex - 0.4);
+  const pv = (flows: number[], discount: number) => flows.reduce((sum, cf, i) => sum + cf / (1 + discount) ** (i + 1), 0);
+  const enterpriseValue = pv(projectFlows, 0.065);
   return {
-    enterpriseValue: parseFloat((totalCapex + projectNPV).toFixed(1)),
-    equityValue: parseFloat((equityInitial + equityNPV).toFixed(1)),
-    equityIRR: parseFloat(approxEquityIRR.toFixed(1)),
-    projectIRR: parseFloat(approxProjectIRR.toFixed(1)),
-    p90EquityIRR: parseFloat(approxP90EquityIRR.toFixed(1)),
-    dscrMin,
+    enterpriseValue,
+    equityValue: enterpriseValue - debtPrincipal,
+    equityIRR: calculateIRR([-equityInitial, ...annualCashFlows.map(cf => cf.fcfE)]),
+    projectIRR: calculateIRR([-totalCapex, ...projectFlows]),
+    dscrMin: Math.min(...annualCashFlows.filter(cf => cf.debtService > 0).map(cf => (cf.revenue - cf.opex - 0.4) / cf.debtService)),
+    debtPrincipal,
     annualCashFlows,
   };
 }
