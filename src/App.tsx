@@ -40,19 +40,21 @@ function MainAppContent() {
   const {language} = useLanguage();
   const [activeModal, setActiveModal] = useState<ModalType>('none');
   const [isOpenConsentSettings, setIsOpenConsentSettings] = useState<boolean>(false);
-  const [isDark, setIsDark] = useState<boolean>(false);
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    try { return localStorage.getItem('valfence_theme') !== 'light'; } catch { return true; }
+  });
   const [activeSection, setActiveSection] = useState<string>('hero-section');
 
-  // Initialize theme from localStorage or default to clean light mode
+  // Restore an explicit light preference; otherwise default to dark mode.
   useEffect(() => {
     let savedTheme: string | null = null;
     try { savedTheme = localStorage.getItem('valfence_theme'); } catch { /* Storage may be blocked. */ }
-    if (savedTheme === 'dark') {
-      setIsDark(true);
-      document.documentElement.classList.add('dark');
-    } else {
+    if (savedTheme === 'light') {
       setIsDark(false);
       document.documentElement.classList.remove('dark');
+    } else {
+      setIsDark(true);
+      document.documentElement.classList.add('dark');
     }
   }, []);
 
